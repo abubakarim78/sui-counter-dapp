@@ -14,85 +14,99 @@ export function Counter({ id }: { id: string }) {
   const counterPackageId = useNetworkVariable("counterPackageId");
   const suiClient = useSuiClient();
   const currentAccount = useCurrentAccount();
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
   const { data, isPending, error, refetch } = useSuiClientQuery("getObject", {
-    id,
-    options: {
-      showContent: true,
-      showOwner: true,
-    },
+  	id,
+  	options: {
+  		showContent: true,
+  		showOwner: true,
+  	},
   });
 
   const [waitingForTxn, setWaitingForTxn] = useState("");
 
-  const executeMoveCall = async (method: "increment" | "decrement" | "reset") => {
-    try {
-      setWaitingForTxn(method);
+  const executeMoveCall = (method: "increment" | "decrement" | "reset") => {
+  	setWaitingForTxn(method);
 
-      const tx = new Transaction();
-      const counterObject = tx.object(id);
+  	const tx = new Transaction();
 
-      if (method === "reset") {
-        tx.moveCall({
-          target: `${counterPackageId}::counter::reset`,
-          arguments: [counterObject, tx.pure.u64(0)],
-        });
-      } else if (method === "increment") {
-        tx.moveCall({
-          target: `${counterPackageId}::counter::increment`,
-          arguments: [counterObject],
-        });
-      } else {
-        tx.moveCall({
-          target: `${counterPackageId}::counter::decrement`,
-          arguments: [counterObject],
-        });
-      }
-
-      const txResult = await signAndExecute({ transaction: tx });
-      await suiClient.waitForTransaction({ digest: txResult.digest });
-      await refetch();
-    } catch (e) {
-      console.error("Transaction failed:", e);
-    } finally {
-      setWaitingForTxn("");
+  	if (method === "reset") {
+  		tx.moveCall({
+  			arguments: [tx.object(id), tx.pure.u64(0)],
+  			target: `${counterPackageId}::counter::reset`,
+  		});
+  	} else if (method === "increment") {
+  		tx.moveCall({
+  			arguments: [tx.object(id)],
+  			target: `${counterPackageId}::counter::increment`,
+  		});
+  	} else {
+      tx.moveCall({
+  			arguments: [tx.object(id)],
+  			target: `${counterPackageId}::counter::decrement`,
+  		});
     }
+
+  	signAndExecute(
+  		{
+  			transaction: tx,
+  		},
+  		{
+  			onSuccess: (tx) => {
+  				suiClient.waitForTransaction({ digest: tx.digest }).then(async () => {
+  					await refetch();
+  					setWaitingForTxn("");
+  				});
+  			},
+  		},
+  	);
   };
 
-  if (isPending) return <Text>Loading counter data...</Text>;
-  if (error) return <Text>Error: {error.message}</Text>;
-  if (!data.data) return <Text>Counter not found</Text>;
+  if (isPending) return <Text>Loading...</Text>;
 
-  const fields = getCounterFields(data.data);
-  const isOwner = fields?.owner === currentAccount?.address;
+  if (error) return <Text>Error: {error.message}</Text>;
+
+  if (!data.data) return <Text>Not found</Text>;
+
+  const ownedByCurrentAccount =
+  	getCounterFields(data.data)?.owner === currentAccount?.address;
 
   return (
-    <>
-      <Heading size="3">Counter ID: {id}</Heading>
-      <Flex direction="column" gap="3" mt="3">
-        <Text size="5">Count: {fields?.value ?? "N/A"}</Text>
+  	<>
+  		<Heading size="3">Counter {id}</Heading>
 
-        <Flex direction="row" gap="3">
-          <Button onClick={() => executeMoveCall("increment")} disabled={waitingForTxn !== ""}>
-            {waitingForTxn === "increment" ? "Increasing Counter..." : "Increment"}
-          </Button>
-
-          <Button onClick={() => executeMoveCall("decrement")} disabled={waitingForTxn !== ""}>
-            {waitingForTxn === "decrement" ? "Decreasing Counter..." : "Decrement"}
-          </Button>
-
-          {isOwner && (
-            <Button onClick={() => executeMoveCall("reset")} disabled={waitingForTxn !== ""}>
-              {waitingForTxn === "reset" ? "Resetting Counter...": "Reset"}
-            </Button>
-          )}
-        </Flex>
-      </Flex>
-    </>
+  		<Flex direction="column" gap="2">
+  			<Text>Count: {getCounterFields(data.data)?.value}</Text>
+  			<Flex direction="row" gap="2">
+  				<Button
+  					onClick={() => executeMoveCall("increment")}
+  					disabled={waitingForTxn !== ""}
+  				>
+  					{waitingForTxn === "increment" ? "Increasing Count" : "Increment"}
+  				</Button>
+  				<Button
+  					onClick={() => executeMoveCall("decrement")}
+  					disabled={waitingForTxn !== ""}
+  				>
+  					{waitingForTxn === "decrement" ? "Decreasing Count" : "Decrement"}
+  				</Button>
+  				{ownedByCurrentAccount ? (
+  					<Button
+  						onClick={() => executeMoveCall("reset")}
+  						disabled={waitingForTxn !== ""}
+  					>
+  						{waitingForTxn === "reset" ? "Resetting Count" : "Reset"}
+  					</Button>
+  				) : null}
+  			</Flex>
+  		</Flex>
+  	</>
   );
 }
-
 function getCounterFields(data: SuiObjectData) {
-  if (data.content?.dataType !== "moveObject") return null;
+  if (data.content?.dataType !== "moveObject") {
+  	return null;
+  }
+
   return data.content.fields as { value: number; owner: string };
 }
